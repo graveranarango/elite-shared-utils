@@ -1,6 +1,6 @@
 import "jsr:@supabase/functions-js@^2/edge-runtime.d.ts";
 import {
-  AuthError as _AuthError,
+  AuthError,
   callRPC,
   createContext,
   ExternalAPIError,
@@ -86,6 +86,25 @@ Deno.serve(async (req: Request): Promise<Response> => {
   // T6 + T7: vault + callRPC require live env (INTERNAL_TOKEN). Show signature only.
   results.t6_vault_export = typeof getSecret === "function";
   results.t7_callrpc_export = typeof callRPC === "function";
+
+  // T11: live vault.getSecret end-to-end through bridge (M7-DEUDA1).
+  // Requires INTERNAL_TOKEN env on the EF + TEST_SECRET in vault.
+  const t11: Record<string, unknown> = {};
+  try {
+    const v = await getSecret(ctx, "TEST_SECRET");
+    t11.test_secret_value = v;
+    t11.test_secret_match = v === "test_value_xyz";
+  } catch (e) {
+    t11.test_secret_error = e instanceof Error ? e.message : String(e);
+  }
+  try {
+    await getSecret(ctx, "nonexistent_secret_zzz");
+    t11.nonexistent_threw_auth_error = false;
+  } catch (e) {
+    t11.nonexistent_threw_auth_error = e instanceof AuthError;
+    t11.nonexistent_error_kind = e?.constructor?.name ?? "unknown";
+  }
+  results.t11_vault_live = t11;
 
   return new Response(
     JSON.stringify(
