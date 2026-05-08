@@ -2,6 +2,15 @@
   "name": "@elite/shared-utils",
   "version": "0.1.0",
   "exports": "./src/mod.ts",
+  "publish": {
+    "include": [
+      "LICENSE",
+      "README.md",
+      "deno.json",
+      "jsr.json",
+      "src/**/*.ts"
+    ]
+  },
   "tasks": {
     "test": "deno test --allow-net --allow-env --coverage=cov_profile",
     "lint": "deno lint",
