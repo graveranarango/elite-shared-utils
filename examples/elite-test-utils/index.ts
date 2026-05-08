@@ -1,16 +1,18 @@
 import "jsr:@supabase/functions-js@^2/edge-runtime.d.ts";
-import { createContext } from "./tenant.ts";
-import { logger, sanitize } from "./logger.ts";
-import { withRetry } from "./retry.ts";
 import {
   AuthError as _AuthError,
+  callRPC,
+  createContext,
   ExternalAPIError,
+  getSecret,
+  logger,
   RateLimitError as _RateLimitError,
   RPCError as _RPCError,
+  sanitize,
+  trackLLMCost as _trackLLMCost,
   ValidationError as _ValidationError,
-} from "./errors.ts";
-import { callRPC } from "./rpc-client.ts";
-import { trackLLMCost as _trackLLMCost } from "./cost.ts";
+  withRetry,
+} from "jsr:@elite/shared-utils@^0.1.0";
 
 Deno.serve(async (req: Request): Promise<Response> => {
   const url = new URL(req.url);
@@ -82,7 +84,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
   results.t10_retry = { result: retryResult, attempts_used: attempts };
 
   // T6 + T7: vault + callRPC require live env (INTERNAL_TOKEN). Show signature only.
-  results.t6_vault_export = typeof (await import("./vault.ts")).getSecret === "function";
+  results.t6_vault_export = typeof getSecret === "function";
   results.t7_callrpc_export = typeof callRPC === "function";
 
   return new Response(
