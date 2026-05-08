@@ -1,8 +1,10 @@
 import type { TenantContext } from "./tenant.ts";
-export interface LogFields { [key: string]: unknown; }
+export interface LogFields {
+  [key: string]: unknown;
+}
 type Level = "debug" | "info" | "warn" | "error";
 
-const PHONE_RE = /\+?\d{1,2}[\s.-]?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}/g;
+const PHONE_RE = /(?:\+?\d{1,2}[\s.-]?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}/g;
 const EMAIL_RE = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
 const SSN_RE = /\b\d{3}-\d{2}-\d{4}\b/g;
 const CC_RE = /\b(?:\d[ -]*?){13,16}\b/g;
@@ -42,7 +44,7 @@ function emit(level: Level, ctx: TenantContext | null, msg: string, fields?: Log
 
 export const logger = {
   debug: (ctx: TenantContext, msg: string, fields?: LogFields) => emit("debug", ctx, msg, fields),
-  info:  (ctx: TenantContext, msg: string, fields?: LogFields) => emit("info",  ctx, msg, fields),
-  warn:  (ctx: TenantContext, msg: string, fields?: LogFields) => emit("warn",  ctx, msg, fields),
+  info: (ctx: TenantContext, msg: string, fields?: LogFields) => emit("info", ctx, msg, fields),
+  warn: (ctx: TenantContext, msg: string, fields?: LogFields) => emit("warn", ctx, msg, fields),
   error: (ctx: TenantContext, msg: string, fields?: LogFields) => emit("error", ctx, msg, fields),
 };

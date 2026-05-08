@@ -10,10 +10,15 @@ export async function getSecret(ctx: TenantContext, secretName: string): Promise
   if (cached && Date.now() - cached.fetchedAt < TTL_MS) return cached.value;
   if (secretName === "internal_token" && typeof Deno !== "undefined") {
     const env = Deno.env.get("INTERNAL_TOKEN");
-    if (env) { cache.set(secretName, { value: env, fetchedAt: Date.now() }); return env; }
+    if (env) {
+      cache.set(secretName, { value: env, fetchedAt: Date.now() });
+      return env;
+    }
   }
   try {
-    const value = await callRPC<string>(ctx, "shared_get_vault_secret", { secret_name: secretName });
+    const value = await callRPC<string>(ctx, "shared_get_vault_secret", {
+      secret_name: secretName,
+    });
     if (typeof value !== "string" || !value) throw new AuthError(`secret_not_found: ${secretName}`);
     cache.set(secretName, { value, fetchedAt: Date.now() });
     return value;
@@ -23,4 +28,6 @@ export async function getSecret(ctx: TenantContext, secretName: string): Promise
   }
 }
 
-export function _clearCache(): void { cache.clear(); }
+export function _clearCache(): void {
+  cache.clear();
+}

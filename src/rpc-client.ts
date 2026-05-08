@@ -1,11 +1,16 @@
 import type { TenantContext } from "./tenant.ts";
-import { RPCError, AuthError, TenantError, ValidationError, RateLimitError } from "./errors.ts";
+import { AuthError, RateLimitError, RPCError, TenantError, ValidationError } from "./errors.ts";
 
-export interface RPCOptions { testMode?: boolean; timeout?: number; }
+export interface RPCOptions {
+  testMode?: boolean;
+  timeout?: number;
+}
 
-const BRIDGE_URL = (typeof Deno !== "undefined" ? Deno.env.get("ELITE_RPC_BRIDGE_URL") : undefined)
-  ?? "https://uoznkapeedqgoiwebete.functions.supabase.co/elite-rpc-bridge";
-const INTERNAL_TOKEN = (typeof Deno !== "undefined" ? Deno.env.get("INTERNAL_TOKEN") : undefined) ?? "";
+const BRIDGE_URL =
+  (typeof Deno !== "undefined" ? Deno.env.get("ELITE_RPC_BRIDGE_URL") : undefined) ??
+    "https://uoznkapeedqgoiwebete.functions.supabase.co/elite-rpc-bridge";
+const INTERNAL_TOKEN = (typeof Deno !== "undefined" ? Deno.env.get("INTERNAL_TOKEN") : undefined) ??
+  "";
 
 export async function callRPC<T = unknown>(
   ctx: TenantContext,
@@ -26,7 +31,8 @@ export async function callRPC<T = unknown>(
     };
     if (options.testMode) headers["X-Test-Mode"] = "true";
     const res = await fetch(BRIDGE_URL, {
-      method: "POST", headers,
+      method: "POST",
+      headers,
       body: JSON.stringify({ rpc_name: rpcName, args }),
       signal: controller.signal,
     });
@@ -37,7 +43,9 @@ export async function callRPC<T = unknown>(
     const msg = body.error_message ?? `HTTP ${res.status}`;
     if (res.status === 401) throw new AuthError(`${code}: ${msg}`, requestId);
     if (res.status === 403) throw new TenantError(`${code}: ${msg}`, requestId);
-    if (res.status === 400 && code === "validation_failed") throw new ValidationError("args", `${code}: ${msg}`, requestId);
+    if (res.status === 400 && code === "validation_failed") {
+      throw new ValidationError("args", `${code}: ${msg}`, requestId);
+    }
     if (res.status === 429) {
       const retryAfter = parseInt(res.headers.get("retry-after") ?? "60", 10);
       throw new RateLimitError(retryAfter, `${code}: ${msg}`, requestId);
