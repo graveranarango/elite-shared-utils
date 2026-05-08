@@ -43,8 +43,12 @@ function emit(level: Level, ctx: TenantContext | null, msg: string, fields?: Log
 }
 
 export const logger = {
-  debug: (ctx: TenantContext, msg: string, fields?: LogFields) => emit("debug", ctx, msg, fields),
-  info: (ctx: TenantContext, msg: string, fields?: LogFields) => emit("info", ctx, msg, fields),
-  warn: (ctx: TenantContext, msg: string, fields?: LogFields) => emit("warn", ctx, msg, fields),
-  error: (ctx: TenantContext, msg: string, fields?: LogFields) => emit("error", ctx, msg, fields),
+  debug: (ctx: TenantContext, msg: string, fields?: LogFields): void =>
+    emit("debug", ctx, msg, fields),
+  info: (ctx: TenantContext, msg: string, fields?: LogFields): void =>
+    emit("info", ctx, msg, fields),
+  warn: (ctx: TenantContext, msg: string, fields?: LogFields): void =>
+    emit("warn", ctx, msg, fields),
+  error: (ctx: TenantContext, msg: string, fields?: LogFields): void =>
+    emit("error", ctx, msg, fields),
 };

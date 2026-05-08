@@ -3,7 +3,18 @@
   "version": "0.1.0",
   "exports": "./src/mod.ts",
   "publish": {
-    "include": ["src/", "README.md", "deno.json", "jsr.json", "LICENSE"],
-    "exclude": ["tests/", ".github/", "cov_profile/"]
-  }
+    "include": [
+      "src/",
+      "README.md",
+      "deno.json",
+      "jsr.json",
+      "LICENSE"
+    ],
+    "exclude": [
+      "tests/",
+      ".github/",
+      "cov_profile/"
+    ]
+  },
+  "license": "MIT"
 }
