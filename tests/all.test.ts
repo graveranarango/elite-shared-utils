@@ -1,6 +1,19 @@
-import { assertEquals, assertThrows, assertRejects, assertStringIncludes, assert } from "https://deno.land/std@0.224.0/assert/mod.ts";
+import {
+  assert,
+  assertEquals,
+  assertRejects,
+  assertStringIncludes,
+  assertThrows,
+} from "https://deno.land/std@0.224.0/assert/mod.ts";
 import { createContext } from "../src/tenant.ts";
-import { TenantError, AuthError, ValidationError, RateLimitError, RPCError, ExternalAPIError } from "../src/errors.ts";
+import {
+  AuthError,
+  ExternalAPIError,
+  RateLimitError,
+  RPCError,
+  TenantError,
+  ValidationError,
+} from "../src/errors.ts";
 import { logger, sanitize } from "../src/logger.ts";
 import { withRetry } from "../src/retry.ts";
 import { _clearCache } from "../src/vault.ts";
@@ -52,7 +65,9 @@ Deno.test("errors T3: requestId propagates", () => {
 Deno.test("logger T1 happy: emits JSON line with required fields", () => {
   const orig = console.log;
   let captured = "";
-  console.log = (s: string) => { captured = s; };
+  console.log = (s: string) => {
+    captured = s;
+  };
   try {
     logger.info(newCtx(), "test msg", { foo: "bar" });
     const obj = JSON.parse(captured);
@@ -61,7 +76,9 @@ Deno.test("logger T1 happy: emits JSON line with required fields", () => {
     assertEquals(obj.foo, "bar");
     assertEquals(typeof obj.request_id, "string");
     assertEquals(obj.tenant_id, TENANT);
-  } finally { console.log = orig; }
+  } finally {
+    console.log = orig;
+  }
 });
 
 Deno.test("logger T2 PII: phone/email/SSN/CC/api_key sanitized", () => {
@@ -82,7 +99,10 @@ Deno.test("logger T2 PII: phone/email/SSN/CC/api_key sanitized", () => {
 });
 
 Deno.test("logger T3 edge: non-string fields pass through", () => {
-  const out = sanitize({ n: 42, b: true, nul: null, arr: [1, "+13055551234", 3] }) as Record<string, unknown>;
+  const out = sanitize({ n: 42, b: true, nul: null, arr: [1, "+13055551234", 3] }) as Record<
+    string,
+    unknown
+  >;
   assertEquals(out.n, 42);
   assertEquals(out.b, true);
   assertEquals(out.nul, null);
@@ -92,6 +112,7 @@ Deno.test("logger T3 edge: non-string fields pass through", () => {
 // --------- retry ---------
 Deno.test("retry T1 happy: fail 2x succeed 3rd", async () => {
   let calls = 0;
+  // deno-lint-ignore require-await
   const result = await withRetry(newCtx(), async () => {
     calls++;
     if (calls < 3) throw new ExternalAPIError("anthropic", 502, "transient");
@@ -104,6 +125,7 @@ Deno.test("retry T1 happy: fail 2x succeed 3rd", async () => {
 Deno.test("retry T2 error: non-retryable throws immediately", async () => {
   let calls = 0;
   await assertRejects(async () => {
+    // deno-lint-ignore require-await
     await withRetry(newCtx(), async () => {
       calls++;
       throw new ValidationError("f", "bad input");
@@ -114,6 +136,7 @@ Deno.test("retry T2 error: non-retryable throws immediately", async () => {
 
 Deno.test("retry T3 edge: attempts > 5 throws config error", async () => {
   await assertRejects(
+    // deno-lint-ignore require-await
     async () => await withRetry(newCtx(), async () => "x", { attempts: 6 }),
     Error,
     "config_error",
@@ -121,12 +144,17 @@ Deno.test("retry T3 edge: attempts > 5 throws config error", async () => {
 });
 
 Deno.test("retry T4 RateLimit: uses retryAfter when present", async () => {
-  let calls = 0; let sawDelay = 0;
+  let calls = 0;
+  let sawDelay = 0;
   const orig = setTimeout;
   // patch setTimeout to capture delay
   (globalThis as unknown as { setTimeout: typeof setTimeout }).setTimeout =
-    ((fn: () => void, ms?: number) => { sawDelay = ms ?? 0; return orig(fn, 0); }) as typeof setTimeout;
+    ((fn: () => void, ms?: number) => {
+      sawDelay = ms ?? 0;
+      return orig(fn, 0);
+    }) as typeof setTimeout;
   try {
+    // deno-lint-ignore require-await
     await withRetry(newCtx(), async () => {
       calls++;
       if (calls < 2) throw new RateLimitError(2, "slow down");
@@ -138,49 +166,221 @@ Deno.test("retry T4 RateLimit: uses retryAfter when present", async () => {
   assertEquals(sawDelay, 2000);
 });
 
-// --------- vault (cache only - skip live RPC in unit tests) ---------
-Deno.test("vault T3 edge: _clearCache works", () => {
+// --------- vault ---------
+Deno.test("vault T1 happy: env INTERNAL_TOKEN shortcut returns directly", async () => {
   _clearCache();
-  // function exists and returns undefined
+  Deno.env.set("INTERNAL_TOKEN", "env_token_xyz_123");
+  const origFetch = globalThis.fetch;
+  let fetchCalled = false;
+  globalThis.fetch = (() => {
+    fetchCalled = true;
+    return Promise.resolve(new Response("{}", { status: 200 }));
+  }) as typeof fetch;
+  try {
+    const { getSecret } = await import("../src/vault.ts");
+    const v = await getSecret(newCtx(), "internal_token");
+    assertEquals(v, "env_token_xyz_123");
+    assertEquals(fetchCalled, false, "env shortcut should not call fetch");
+    // second call hits cache
+    const v2 = await getSecret(newCtx(), "internal_token");
+    assertEquals(v2, "env_token_xyz_123");
+  } finally {
+    globalThis.fetch = origFetch;
+    Deno.env.delete("INTERNAL_TOKEN");
+    _clearCache();
+  }
+});
+
+Deno.test("vault T2 happy: fetch returns value, second call cached", async () => {
+  _clearCache();
+  Deno.env.set("INTERNAL_TOKEN", "fetch_caller_token_must_be_set_for_callRPC");
+  let fetchCount = 0;
+  const origFetch = globalThis.fetch;
+  globalThis.fetch = (() => {
+    fetchCount++;
+    return Promise.resolve(
+      new Response(
+        JSON.stringify({
+          request_id: "rid",
+          rpc_name: "shared_get_vault_secret",
+          result: "vault_value_abc",
+          latency_ms: 5,
+          sandbox: false,
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    );
+  }) as typeof fetch;
+  try {
+    const { getSecret } = await import("../src/vault.ts");
+    const v1 = await getSecret(newCtx(), "stripe_secret_key");
+    assertEquals(v1, "vault_value_abc");
+    assertEquals(fetchCount, 1);
+    const v2 = await getSecret(newCtx(), "stripe_secret_key");
+    assertEquals(v2, "vault_value_abc");
+    assertEquals(fetchCount, 1, "cache hit, no extra fetch");
+  } finally {
+    globalThis.fetch = origFetch;
+    Deno.env.delete("INTERNAL_TOKEN");
+    _clearCache();
+  }
+});
+
+Deno.test("vault T3 edge: secret not found throws AuthError", async () => {
+  _clearCache();
+  Deno.env.set("INTERNAL_TOKEN", "any");
+  const origFetch = globalThis.fetch;
+  globalThis.fetch = (() =>
+    Promise.resolve(
+      new Response(
+        JSON.stringify({
+          request_id: "rid",
+          rpc_name: "shared_get_vault_secret",
+          result: null,
+          latency_ms: 5,
+          sandbox: false,
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    )) as typeof fetch;
+  try {
+    const { getSecret } = await import("../src/vault.ts");
+    await assertRejects(
+      async () => await getSecret(newCtx(), "missing_secret"),
+      AuthError,
+    );
+  } finally {
+    globalThis.fetch = origFetch;
+    Deno.env.delete("INTERNAL_TOKEN");
+    _clearCache();
+  }
+});
+
+Deno.test("vault T4 edge: _clearCache works", () => {
+  _clearCache();
   assertEquals(_clearCache(), undefined);
 });
 
 // --------- rpc-client mocked ---------
 Deno.test("rpc T1 happy: 200 returns result", async () => {
   const orig = globalThis.fetch;
-  globalThis.fetch = (() => Promise.resolve(new Response(JSON.stringify({
-    request_id: "rid-1", rpc_name: "shared_log_cost", result: { cost_id: 99 }, latency_ms: 12, sandbox: true,
-  }), { status: 200, headers: { "content-type": "application/json" } }))) as typeof fetch;
+  globalThis.fetch = (() =>
+    Promise.resolve(
+      new Response(
+        JSON.stringify({
+          request_id: "rid-1",
+          rpc_name: "shared_log_cost",
+          result: { cost_id: 99 },
+          latency_ms: 12,
+          sandbox: true,
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    )) as typeof fetch;
   try {
     const { callRPC } = await import("../src/rpc-client.ts");
-    const r = await callRPC<{ cost_id: number }>(newCtx(), "shared_log_cost", { service: "anthropic", cost_usd: 0.01 });
+    const r = await callRPC<{ cost_id: number }>(newCtx(), "shared_log_cost", {
+      service: "anthropic",
+      cost_usd: 0.01,
+    });
     assertEquals(r.cost_id, 99);
-  } finally { globalThis.fetch = orig; }
+  } finally {
+    globalThis.fetch = orig;
+  }
 });
 
 Deno.test("rpc T2 error: 429 throws RateLimitError with retryAfter", async () => {
   const orig = globalThis.fetch;
-  globalThis.fetch = (() => Promise.resolve(new Response(
-    JSON.stringify({ error_code: "rate_limited", error_message: "exceeded" }),
-    { status: 429, headers: { "content-type": "application/json", "retry-after": "30" } },
-  ))) as typeof fetch;
+  globalThis.fetch = (() =>
+    Promise.resolve(
+      new Response(
+        JSON.stringify({ error_code: "rate_limited", error_message: "exceeded" }),
+        { status: 429, headers: { "content-type": "application/json", "retry-after": "30" } },
+      ),
+    )) as typeof fetch;
   try {
     const { callRPC } = await import("../src/rpc-client.ts");
     await assertRejects(
       async () => await callRPC(newCtx(), "x", {}),
       RateLimitError,
     );
-  } finally { globalThis.fetch = orig; }
+  } finally {
+    globalThis.fetch = orig;
+  }
 });
 
 Deno.test("rpc T3 edge: 401 throws AuthError", async () => {
   const orig = globalThis.fetch;
-  globalThis.fetch = (() => Promise.resolve(new Response(
-    JSON.stringify({ error_code: "invalid_internal_token", error_message: "denied" }),
-    { status: 401 },
-  ))) as typeof fetch;
+  globalThis.fetch = (() =>
+    Promise.resolve(
+      new Response(
+        JSON.stringify({ error_code: "invalid_internal_token", error_message: "denied" }),
+        { status: 401 },
+      ),
+    )) as typeof fetch;
   try {
     const { callRPC } = await import("../src/rpc-client.ts");
     await assertRejects(async () => await callRPC(newCtx(), "x", {}), AuthError);
-  } finally { globalThis.fetch = orig; }
+  } finally {
+    globalThis.fetch = orig;
+  }
+});
+
+Deno.test("rpc T4 edge: timeout aborts request", async () => {
+  const orig = globalThis.fetch;
+  globalThis.fetch = ((_: string | URL | Request, init?: RequestInit) => {
+    return new Promise((_resolve, reject) => {
+      const signal = init?.signal;
+      if (signal) {
+        signal.addEventListener("abort", () => {
+          reject(new DOMException("aborted", "AbortError"));
+        });
+      }
+      // never resolve otherwise
+    });
+  }) as typeof fetch;
+  try {
+    const { callRPC } = await import("../src/rpc-client.ts");
+    await assertRejects(
+      async () => await callRPC(newCtx(), "x", {}, { timeout: 30 }),
+    );
+  } finally {
+    globalThis.fetch = orig;
+  }
+});
+
+// --------- logger: cover error + debug levels ---------
+Deno.test("logger T4 error level: emits with level=error", () => {
+  const orig = console.log;
+  let captured = "";
+  console.log = (s: string) => {
+    captured = s;
+  };
+  try {
+    logger.error(newCtx(), "boom", { code: "x" });
+    const obj = JSON.parse(captured);
+    assertEquals(obj.level, "error");
+    assertEquals(obj.msg, "boom");
+    assertEquals(obj.code, "x");
+  } finally {
+    console.log = orig;
+  }
+});
+
+Deno.test("logger T5 debug + warn levels: emit correctly", () => {
+  const orig = console.log;
+  const captured: string[] = [];
+  console.log = (s: string) => {
+    captured.push(s);
+  };
+  try {
+    logger.debug(newCtx(), "dbg msg");
+    logger.warn(newCtx(), "warn msg");
+    const debugObj = JSON.parse(captured[0]);
+    const warnObj = JSON.parse(captured[1]);
+    assertEquals(debugObj.level, "debug");
+    assertEquals(warnObj.level, "warn");
+  } finally {
+    console.log = orig;
+  }
 });
